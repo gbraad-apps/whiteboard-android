@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Excalidraw</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        #root { width: 100%; height: 100%; }
+        #status {
+            display: flex; align-items: center; justify-content: center;
+            height: 100vh; font-size: 16px; color: #6965db;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            flex-direction: column; gap: 12px; padding: 20px; text-align: center;
+        }
+        #status.error { color: #e03131; }
+
+        /* Pre-register Excalidraw fonts from local assets.
+           Relative URLs resolve from this document's location:
+           file:///android_asset/excalidraw.html → lib/excalidraw-assets/... */
+        @font-face {
+            font-family: 'Virgil';
+            src: url('lib/excalidraw-assets/Virgil.woff2') format('woff2');
+            font-display: block;
+        }
+        @font-face {
+            font-family: 'Cascadia';
+            src: url('lib/excalidraw-assets/Cascadia.woff2') format('woff2');
+            font-display: block;
+        }
+        @font-face {
+            font-family: 'Assistant';
+            src: url('lib/excalidraw-assets/Assistant-Regular.woff2') format('woff2');
+            font-weight: 400;
+            font-display: block;
+        }
+        @font-face {
+            font-family: 'Assistant';
+            src: url('lib/excalidraw-assets/Assistant-Medium.woff2') format('woff2');
+            font-weight: 500;
+            font-display: block;
+        }
+        @font-face {
+            font-family: 'Assistant';
+            src: url('lib/excalidraw-assets/Assistant-SemiBold.woff2') format('woff2');
+            font-weight: 600;
+            font-display: block;
+        }
+        @font-face {
+            font-family: 'Assistant';
+            src: url('lib/excalidraw-assets/Assistant-Bold.woff2') format('woff2');
+            font-weight: 700;
+            font-display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"><div id="status">Loading Excalidraw...</div></div>
+
+    <!-- Set asset path BEFORE loading the bundle so webpack uses local fonts -->
+    <script>window.EXCALIDRAW_ASSET_PATH = 'file:///android_asset/lib/';</script>
+
+    <script src="lib/react.production.min.js"></script>
+    <script src="lib/react-dom.production.min.js"></script>
+    <script src="lib/excalidraw.production.min.js"></script>
+
+    <script>
+    (function () {
+        'use strict';
+
+        function showError(msg) {
+            var el = document.getElementById('status');
+            if (el) { el.className = 'error'; el.textContent = msg; }
+            console.error('[Excalidraw] ' + msg);
+            try { if (window.Android) window.Android.onError(msg); } catch(e) {}
+        }
+
+        if (!window.React)           { showError('React failed to load'); return; }
+        if (!window.ReactDOM)        { showError('ReactDOM failed to load'); return; }
+        if (!window.ExcalidrawLib)   { showError('ExcalidrawLib failed to load'); return; }
+
+        var React        = window.React;
+        var ReactDOM     = window.ReactDOM;
+        var Excalidraw   = window.ExcalidrawLib.Excalidraw;
+        var MainMenu     = window.ExcalidrawLib.MainMenu;
+
+        if (!Excalidraw) { showError('Excalidraw component not found'); return; }
+
+        // ── Load initial scene data synchronously from Java ───────────────────
+        var initialData = null;
+        try {
+            if (window.Android) {
+                var raw = window.Android.getInitialData();
+                if (raw && raw.length > 0) {
+                    var parsed = JSON.parse(raw);
+                    initialData = {
+                        elements: parsed.elements || [],
+                        appState: parsed.appState  || {},
+                        files:    parsed.files     || {}
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn('[Excalidraw] Could not load initial data: ' + e.message);
+        }
+
+        // Match body background to theme before React renders to avoid a white flash.
+        if (initialData && initialData.appState && initialData.appState.theme === 'dark') {
+            document.body.style.backgroundColor = '#1e1e2e';
+        }
+
+        // ── Scene state ───────────────────────────────────────────────────────
+        var currentElements = (initialData && initialData.elements) || [];
+        var currentAppState = (initialData && initialData.appState) || {};
+        var currentFiles    = (initialData && initialData.files)    || {};
+
+        // ── Dirty tracking — compare element array reference, not a timer ─────
+        // onChange fires on every pan/zoom (appState only). Excalidraw reuses
+        // the same elements array when only appState changes, so a reference
+        // comparison is O(1) and only triggers on actual drawing changes.
+        var isDirty     = false;
+        var trackDirty  = false;
+        var prevElements = currentElements;
+        var lastTheme   = (initialData && initialData.appState && initialData.appState.theme) || 'light';
+
+        window.isDirty   = function () { return isDirty; };
+        window.markSaved = function () { isDirty = false; };
+
+        // ── Floppy disk icon for Save menu item ───────────────────────────────
+        var saveIcon = React.createElement('svg', {
+            xmlns:   'http://www.w3.org/2000/svg',
+            viewBox: '0 0 24 24',
+            width:   16,
+            height:  16,
+            fill:    'currentColor'
+        }, React.createElement('path', {
+            d: 'M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 ' +
+               '2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z'
+        }));
+
+        // ── App component ─────────────────────────────────────────────────────
+        function App() {
+            React.useEffect(function () {
+                trackDirty = true;
+                console.log('[Excalidraw] mounted, notifying Android');
+                try {
+                    if (window.Android) window.Android.onExcalidrawReady();
+                } catch (e) {
+                    console.error('[Excalidraw] onExcalidrawReady failed: ' + e.message);
+                }
+            }, []);
+
+            var onChange = React.useCallback(function (elements, appState, files) {
+                currentAppState = appState;
+                currentFiles    = files;
+                if (trackDirty && elements !== prevElements) {
+                    isDirty = true;
+                }
+                prevElements    = elements;
+                currentElements = elements;
+                // Notify Java when the user switches dark/light theme
+                var theme = (appState && appState.theme) || 'light';
+                if (theme !== lastTheme) {
+                    lastTheme = theme;
+                    try { if (window.Android) window.Android.onThemeChanged(theme); } catch(e) {}
+                }
+            }, []);
+
+            var menu = null;
+            if (MainMenu && MainMenu.Item) {
+                var items = [];
+
+                items.push(React.createElement(MainMenu.Item, {
+                    key:      'save',
+                    icon:     saveIcon,
+                    onSelect: function () {
+                        try { if (window.Android) window.Android.saveFile(); }
+                        catch (e) { console.error('[Excalidraw] saveFile failed', e); }
+                    }
+                }, 'Save'));
+
+                var D = MainMenu.DefaultItems;
+                if (D) {
+                    if (D.SaveAsImage)            items.push(React.createElement(D.SaveAsImage,            { key: 'd-img'   }));
+                    if (D.ClearCanvas)            items.push(React.createElement(D.ClearCanvas,            { key: 'd-clr'   }));
+                    if (D.ChangeCanvasBackground) items.push(React.createElement(D.ChangeCanvasBackground, { key: 'd-bg'    }));
+                    if (D.ToggleTheme)            items.push(React.createElement(D.ToggleTheme,            { key: 'd-theme' }));
+                    if (D.Help)                   items.push(React.createElement(D.Help,                   { key: 'd-hlp'   }));
+                }
+
+                menu = React.createElement(MainMenu, null, items);
+            }
+
+            return React.createElement(Excalidraw,
+                { initialData: initialData, onChange: onChange },
+                menu
+            );
+        }
+
+        // ── Render ────────────────────────────────────────────────────────────
+        try {
+            var root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(React.createElement(App));
+        } catch (e) {
+            showError('createRoot failed: ' + e.message);
+            return;
+        }
+
+        // ── Java-callable functions ───────────────────────────────────────────
+        window.getScene = function () {
+            var s = currentAppState || {};
+            return JSON.stringify({
+                type:     'excalidraw',
+                version:  2,
+                source:   'android',
+                elements: currentElements || [],
+                appState: {
+                    viewBackgroundColor:        s.viewBackgroundColor        || '#ffffff',
+                    theme:                      s.theme                      || 'light',
+                    currentItemStrokeColor:     s.currentItemStrokeColor,
+                    currentItemBackgroundColor: s.currentItemBackgroundColor,
+                    currentItemFillStyle:       s.currentItemFillStyle,
+                    currentItemStrokeWidth:     s.currentItemStrokeWidth,
+                    currentItemRoughness:       s.currentItemRoughness,
+                    currentItemOpacity:         s.currentItemOpacity,
+                    currentItemFontFamily:      s.currentItemFontFamily,
+                    currentItemFontSize:        s.currentItemFontSize,
+                    currentItemTextAlign:       s.currentItemTextAlign,
+                    currentItemStrokeStyle:     s.currentItemStrokeStyle,
+                    currentItemRoundness:       s.currentItemRoundness
+                },
+                files: currentFiles || {}
+            });
+        };
+
+        window.clearScene = function () {
+            currentElements = [];
+            currentAppState = {};
+            currentFiles    = {};
+        };
+
+    }());
+    </script>
+</body>
+</html>
