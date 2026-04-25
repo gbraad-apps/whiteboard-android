@@ -1,0 +1,23 @@
+# temp
+tmp/
+
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android
+*.iml
+.idea/
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+
+# Built APKs
+*.apk
+*.aab
+
+# Signing files
+*.jks
+*.keystore
