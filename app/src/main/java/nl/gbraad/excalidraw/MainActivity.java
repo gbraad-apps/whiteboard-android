@@ -52,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
         topBar        = findViewById(R.id.top_bar);
         Button btnBrowse = findViewById(R.id.btn_browse);
         Button btnNewDrawing = findViewById(R.id.btn_new_drawing);
-        Button btnSelectFolder = findViewById(R.id.btn_select_folder);
+        View btnSelectFolder = findViewById(R.id.btn_select_folder);
 
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         adapter = new FileListAdapter(files, this::openExcalidrawFile);
