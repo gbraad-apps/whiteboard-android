@@ -28,19 +28,19 @@
             android:id="@+id/btn_new_drawing"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="New"
+            android:text="+"
             android:textColor="#ffffff"
             android:background="@android:color/transparent"
-            android:textSize="14sp" />
+            android:textSize="22sp" />
 
-        <Button
+        <ImageButton
             android:id="@+id/btn_select_folder"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Folder"
-            android:textColor="#ffffff"
+            android:src="@drawable/ic_folder"
             android:background="@android:color/transparent"
-            android:textSize="14sp" />
+            android:padding="10dp"
+            android:contentDescription="Select folder" />
 
         <Button
             android:id="@+id/btn_browse"
