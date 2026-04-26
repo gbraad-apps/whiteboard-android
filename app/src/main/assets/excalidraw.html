@@ -115,17 +115,36 @@
         var currentAppState = (initialData && initialData.appState) || {};
         var currentFiles    = (initialData && initialData.files)    || {};
 
-        // ── Dirty tracking — compare element array reference, not a timer ─────
-        // onChange fires on every pan/zoom (appState only). Excalidraw reuses
-        // the same elements array when only appState changes, so a reference
-        // comparison is O(1) and only triggers on actual drawing changes.
-        var isDirty     = false;
-        var trackDirty  = false;
-        var prevElements = currentElements;
-        var lastTheme   = (initialData && initialData.appState && initialData.appState.theme) || 'light';
+        // ── Dirty tracking — compare element version sums, not array references ──
+        // onChange fires on every pan/zoom too. Array references change on every
+        // call, so reference equality doesn't work. Instead we sum each element's
+        // `version` counter (Excalidraw increments it on every edit, not on pan).
+        // The baseline is captured from the first onChange after mount so that
+        // Excalidraw's own internal normalisation on load doesn't count as dirty.
+        var isDirty    = false;
+        var cleanStamp = null;   // null = baseline not yet captured
+        var lastTheme  = (initialData && initialData.appState && initialData.appState.theme) || 'light';
+
+        function sceneStamp(elements) {
+            if (!elements || !elements.length) return '0:0';
+            var sum = 0;
+            for (var i = 0; i < elements.length; i++) sum += (elements[i].version || 0);
+            return elements.length + ':' + sum;
+        }
 
         window.isDirty   = function () { return isDirty; };
-        window.markSaved = function () { isDirty = false; };
+        window.markSaved = function () { isDirty = false; cleanStamp = sceneStamp(currentElements); };
+
+        // ── Back arrow icon for Back menu item ────────────────────────────────
+        var backIcon = React.createElement('svg', {
+            xmlns:   'http://www.w3.org/2000/svg',
+            viewBox: '0 0 24 24',
+            width:   16,
+            height:  16,
+            fill:    'currentColor'
+        }, React.createElement('path', {
+            d: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'
+        }));
 
         // ── Floppy disk icon for Save menu item ───────────────────────────────
         var saveIcon = React.createElement('svg', {
@@ -142,7 +161,6 @@
         // ── App component ─────────────────────────────────────────────────────
         function App() {
             React.useEffect(function () {
-                trackDirty = true;
                 console.log('[Excalidraw] mounted, notifying Android');
                 try {
                     if (window.Android) window.Android.onExcalidrawReady();
@@ -154,11 +172,14 @@
             var onChange = React.useCallback(function (elements, appState, files) {
                 currentAppState = appState;
                 currentFiles    = files;
-                if (trackDirty && elements !== prevElements) {
+                currentElements = elements;
+                var stamp = sceneStamp(elements);
+                if (cleanStamp === null) {
+                    // First onChange after mount — capture as clean baseline.
+                    cleanStamp = stamp;
+                } else if (stamp !== cleanStamp) {
                     isDirty = true;
                 }
-                prevElements    = elements;
-                currentElements = elements;
                 // Notify Java when the user switches dark/light theme
                 var theme = (appState && appState.theme) || 'light';
                 if (theme !== lastTheme) {
@@ -170,6 +191,15 @@
             var menu = null;
             if (MainMenu && MainMenu.Item) {
                 var items = [];
+
+                items.push(React.createElement(MainMenu.Item, {
+                    key:      'back',
+                    icon:     backIcon,
+                    onSelect: function () {
+                        try { if (window.Android) window.Android.goBack(); }
+                        catch (e) { console.error('[Excalidraw] goBack failed', e); }
+                    }
+                }, 'Back'));
 
                 items.push(React.createElement(MainMenu.Item, {
                     key:      'save',

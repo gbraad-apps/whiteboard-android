@@ -226,6 +226,12 @@ public class ExcalidrawActivity extends AppCompatActivity {
             runOnUiThread(() -> saveAndThen(null));
         }
 
+        /** Called by JS when the user taps Back in the main menu. */
+        @JavascriptInterface
+        public void goBack() {
+            runOnUiThread(() -> onBackPressed());
+        }
+
         @JavascriptInterface
         public void onThemeChanged(String theme) {
             Log.d(TAG, "Theme changed: " + theme);
